@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hémicycle du Sénat Interactif</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+        /* Conteneur principal de l'hémicycle */
+        #hemicycle-layout-container {
+            padding: 2rem 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        /* Style pour l'hémicycle - devient un conteneur de positionnement */
+        #hemicycle {
+            position: relative;
+            width: 100%;
+            max-width: 900px; /* Ajustement de la largeur pour un meilleur rendu */
+            margin-bottom: 20px;
+        }
+        /* Style pour les sièges - maintenant positionnés en absolu */
+        .seat {
+            width: 16px;
+            height: 16px;
+            margin: 1.5px;
+            border-radius: 5px 5px 0 0;
+            background-color: #a0aec0; /* Siège vide */
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+            position: absolute; /* Changement majeur pour le layout */
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+        .seat:hover {
+            transform: scale(1.8) !important; /* !important pour outrepasser la rotation */
+            z-index: 10;
+        }
+        /* Style pour l'infobulle */
+        #tooltip {
+            position: fixed;
+            display: none;
+            padding: 12px;
+            background-color: rgba(0, 0, 0, 0.85);
+            color: white;
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 1000;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            max-width: 250px;
+            transition: opacity 0.2s;
+        }
+        #tooltip img {
+            width: 80px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            border: 2px solid white;
+        }
+        #tooltip h3 {
+            font-weight: bold;
+            font-size: 1rem;
+            margin: 0;
+            margin-bottom: 4px;
+        }
+        #tooltip p {
+            margin: 0;
+            font-size: 0.8rem;
+            color: #cbd5e0;
+        }
+        .loader {
+            border: 8px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 8px solid #3498db;
+            width: 60px;
+            height: 60px;
+            animation: spin 2s linear infinite;
+            margin: 4rem auto;
+        }
+        /* Podium central */
+        #podium {
+            width: 30%;
+            height: 40px;
+            background-color: #e2e8f0;
+            border: 2px solid #cbd5e0;
+            border-radius: 0 0 10px 10px; /* Arrondi en bas */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #4a5568;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <div class="bg-white rounded-xl shadow-lg p-6 text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Hémicycle du Sénat</h1>
+            <p class="text-gray-600 mt-2">Passez la souris sur un siège pour voir les informations du sénateur.</p>
+        </div>
+
+        <div id="loading" class="text-center p-10">
+             <div class="loader"></div>
+             <p class="mt-4 text-gray-500">Chargement des données des sénateurs...</p>
+        </div>
+
+        <div id="hemicycle-layout-container" class="bg-white rounded-xl shadow-lg overflow-x-auto hidden">
+             <div id="hemicycle"></div>
+             <div id="podium">Tribune</div>
+             <div id="legend" class="mt-8 p-4 flex flex-wrap justify-center gap-x-6 gap-y-2"></div>
+        </div>
+    </div>
+
+    <!-- Infobulle (Tooltip) -->
+    <div id="tooltip"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // URL de l'API du Sénat
+            const API_URL = 'https://www.senat.fr/api-senat/senateurs.json';
+            
+            // Conteneurs HTML
+            const hemicycleDiv = document.getElementById('hemicycle');
+            const tooltip = document.getElementById('tooltip');
+            const loadingDiv = document.getElementById('loading');
+            const hemicycleLayoutContainer = document.getElementById('hemicycle-layout-container');
+            const legendDiv = document.getElementById('legend');
+
+            // Couleurs associées aux groupes politiques
+            const groupColors = {
+                'UMP': '#0066CC',       // Les Républicains (Bleu)
+                'SOC': '#FF8080',      // Socialiste, Écologiste et Républicain (Rose)
+                'UC': '#FF9900',       // Union Centriste (Orange)
+                'LREM': '#9933FF',     // Rassemblement des démocrates, progressistes et indépendants (Violet)
+                'RDSE': '#FFD700',     // Rassemblement Démocratique et Social Européen (Jaune Or)
+                'CRC': '#DC143C',     // Communiste Républicain Citoyen et Écologiste (Rouge Cramoisi)
+                'GEST': '#228B22',      // Écologiste – Solidarité et Territoires (Vert Forêt)
+                'RTLI': '#6495ED',     // Les Indépendants – République et Territoires (Bleu Pervenche)
+                'NI': '#6c757d'    // Non-inscrits (Gris)
+            };
+
+            // Structure de l'hémicycle basée sur l'image fournie.
+            const layout = [
+                [[0,0,0,0,0,0],[1, 2, 3, 4], [5, 6, 7, 8],[9, 10, 11, 12, 13]],
+                [[14,15,15,17,18,19,20],[21, 22, 23, 24, 25], [26, 27, 28, 29, 30], [31,32,33,34,35,36]],
+                [[37, 38, 39, 40, 41, 42, 43, 44, 45], [46,47,48,49,50,51,52], [53, 54, 55, 56, 57, 58, 59], [60, 61, 62,63,64,65,66,67]],
+                [[68,69,  70, 71, 72, 73, 74, 75, 76, 77], [78,79, 80, 81, 82, 83, 84, 85], [86, 87, 88, 89, 90, 91, 92, 93], [94, 95, 96, 97, 98, 99, 100, 101, 102]],
+                [[103, 104, 105, 106, 107, 108, 109], [110, 111, 112, 113], [114, 115, 116, 117], [118, 119, 120, 121], [122, 123, 124, 125], [126, 127, 128, 129], [130, 131, 132,133], [134, 135,136, 137, 138, 139]],
+                [[140, 141, 142, 143, 144, 145, 146], [147, 148, 149, 150, 151], [152, 153, 154, 155, 156], [157, 158, 159, 160, 161], [162, 163, 164, 165, 166], [167, 168, 169, 170, 171], [172, 173, 174, 175, 176], [177, 178, 179, 180, 181, 182]],
+                [[183, 184, 185, 186, 187, 188, 189, 190], [191, 192, 193, 194, 195, 196], [197, 198, 199, 200, 201, 202], [203, 204, 205, 206, 207, 208], [209, 210, 211, 212, 213, 214], [215, 216, 217, 218, 219, 220], [221, 222, 223, 224, 225, 226], [227, 228, 229, 230, 231, 232, 233]],
+                [[234, 235, 236, 237, 238, 239, 240, 241], [242, 243, 244, 245, 246, 247, 248], [249, 250, 251, 252, 253, 254, 255], [256, 257, 258, 259, 260, 261, 262], [263, 264, 265, 266, 267, 268,269], [270, 271, 272, 273, 274,275, 276], [277, 278, 279, 280, 281, 282, 283], [284, 285, 286, 287, 288, 289, 290, 291]],
+                [[0,0,292, 293, 294, 295, 296, 297, 298], [299, 300, 301, 302, 303, 304, 305], [306, 307, 308, 309, 310, 311, 312], [313, 314, 315, 316, 317, 318, 319], [320, 321, 322, 323, 324, 325, 326], [327, 328, 329, 330, 331, 332, 333], [334, 335, 336, 337, 338, 339, 340], [341, 342, 343, 344, 345, 346, 347, 348]]
+            ];
+
+            async function buildHemicycle() {
+                hemicycleDiv.innerHTML = '';
+                legendDiv.innerHTML = '';
+                
+                try {
+                    const response = await fetch(API_URL);
+                    if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
+                    const senators = await response.json();
+
+                    const senatorsBySeat = new Map();
+                    const uniqueGroups = new Map();
+                    senators.forEach(senator => {
+                        if (senator.siege) {
+                            senatorsBySeat.set(senator.siege.toString(), senator);
+                        }
+                        if (senator.groupe && !uniqueGroups.has(senator.groupe.code)) {
+                            uniqueGroups.set(senator.groupe.code, senator.groupe.libelle);
+                        }
+                    });
+                    
+                    loadingDiv.style.display = 'none';
+                    hemicycleLayoutContainer.classList.remove('hidden');
+
+                    // --- LOGIQUE DE PLACEMENT AVEC ALLÉES ---
+                    const containerWidth = hemicycleDiv.offsetWidth || 900;
+                    const centerX = containerWidth / 2;
+                    const baseRadius = containerWidth * 0.15;
+                    const radiusStep = 28;
+                    const maxRadius = baseRadius + (layout.length - 1) * radiusStep;
+
+                    const startAngle = 180;
+                    const endAngle = 360;
+                    const angleRange = endAngle - startAngle;
+                    const alleyWidthInSeats = 1;
+                    const littleAlley = 0.7
+
+                    layout.forEach((row, rowIndex) => {
+                        const currentRadius = baseRadius + rowIndex * radiusStep;
+                        const numSeatsInRow = row.flat().length;
+                        const numAlleys = row.length > 1 ? row.length - 1 : 0;
+                        const addSeat = (numAlleys==3)?numAlleys * alleyWidthInSeats:3*alleyWidthInSeats+(numAlleys-3)*littleAlley
+                        const totalUnits = numSeatsInRow + addSeat;
+                        const anglePerUnit = angleRange / (totalUnits - 1);
+                        let currentUnit = 0;
+
+                        row.forEach((group, groupIndex) => {
+                            group.forEach(seatId => {
+                                const angleDeg = startAngle + (currentUnit * anglePerUnit);
+                                const angleRad = angleDeg * (Math.PI / 180);
+                                const x = centerX + currentRadius * Math.cos(angleRad);
+                                const y = (maxRadius * 1.05) + currentRadius * Math.sin(angleRad);
+                                const seatDiv = document.createElement('div');
+                                seatDiv.className = 'seat';
+                                seatDiv.style.left = `${x - 8}px`;
+                                seatDiv.style.top = `${y - 8}px`;
+                                seatDiv.style.transform = `rotate(${angleDeg - 90}deg)`;
+
+                                const senator = senatorsBySeat.get(seatId.toString());
+                                if (senator) {
+                                    const groupCode = senator.groupe.code;
+                                    seatDiv.style.backgroundColor = groupColors[groupCode] || '#4A5568';
+                                    seatDiv.dataset.senatorName = `${senator.prenom} ${senator.nom}`;
+                                    seatDiv.dataset.senatorGroup = senator.groupe.libelle;
+                                    seatDiv.dataset.senatorPhoto = `https://www.senat.fr${senator.urlAvatar}`;
+                                }
+                                hemicycleDiv.appendChild(seatDiv);
+                                currentUnit++;
+                            });
+                            if (groupIndex < row.length - 1) {
+                                if (numAlleys == 3) {
+                                    currentUnit += alleyWidthInSeats;
+                                } else {
+                                    currentUnit += (groupIndex % 2 == 1 )?alleyWidthInSeats:littleAlley;
+                                }
+                            }
+                        });
+                    });
+
+                    hemicycleDiv.style.height = `${maxRadius * 1.2}px`;
+                    
+                    // --- Construction de la légende ---
+                    for (const [code, libelle] of uniqueGroups.entries()) {
+                        const color = groupColors[code] || '#4A5568';
+                        const legendItem = document.createElement('div');
+                        legendItem.className = 'flex items-center text-sm text-gray-700';
+                        legendItem.innerHTML = `
+                            <span class="w-4 h-4 rounded-sm mr-2 inline-block" style="background-color: ${color};"></span>
+                            <span>${libelle}</span>
+                        `;
+                        legendDiv.appendChild(legendItem);
+                    }
+
+                    addTooltipEvents();
+
+                } catch (error) {
+                    console.error("Impossible de charger les données du Sénat:", error);
+                    loadingDiv.innerHTML = `<p class="text-red-500">Erreur lors du chargement des données. Veuillez réessayer plus tard.</p>`;
+                }
+            }
+
+            function addTooltipEvents() {
+                const seats = document.querySelectorAll('.seat');
+                seats.forEach(seat => {
+                    if (!seat.dataset.senatorName) return; // Ne rien faire pour les sièges vides
+                    seat.addEventListener('mousemove', (e) => {
+                        const senatorName = seat.dataset.senatorName;
+                        const senatorGroup = seat.dataset.senatorGroup;
+                        const senatorPhoto = seat.dataset.senatorPhoto;
+                        
+                        tooltip.innerHTML = `
+                            <img src="${senatorPhoto}" alt="Photo de ${senatorName}" onerror="this.onerror=null;this.src='https://placehold.co/80x100/EFEFEF/AAAAAA?text=Photo';">
+                            <h3>${senatorName}</h3>
+                            <p>${senatorGroup}</p>
+                        `;
+                        tooltip.style.display = 'block';
+                        tooltip.style.left = `${e.pageX + 15}px`;
+                        tooltip.style.top = `${e.pageY + 15}px`;
+                    });
+                    seat.addEventListener('mouseleave', () => {
+                        tooltip.style.display = 'none';
+                    });
+                });
+            }
+
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(buildHemicycle, 250);
+            });
+            
+            buildHemicycle();
+        });
+    </script>
+
+</body>
+</html>
