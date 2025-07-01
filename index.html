@@ -240,6 +240,7 @@
                                     seatDiv.dataset.senatorGroup = senator.groupe.libelle;
                                     seatDiv.dataset.senatorPhoto = `https://www.senat.fr${senator.urlAvatar}`;
                                 }
+                                if (seatId == 0) seatDiv.hidden = true;
                                 hemicycleDiv.appendChild(seatDiv);
                                 currentUnit++;
                             });
